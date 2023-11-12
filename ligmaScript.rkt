@@ -95,6 +95,12 @@
   (if (empty? (cdr args))
                         (list1 (parse (car args)) (mtList))
                         (list1 (parse (car args)) (listHandler  (cdr args)))))
+(define (appFunctionParser arg exps)
+  (if (empty? (cdr exps))
+      (app (parse arg) (parse (car exps)))
+      (appFunctionParser (list arg (car exps)) (cdr exps)  )
+      )
+  )
 
 ; parse: Src -> Expr
 ; parsea codigo fuente
@@ -119,9 +125,7 @@
     [(list 'appendStr args ...) (parsePrimitiveArgs 'appendStr args)]
     [(list 'lenStr str) (1argPrim 'lenStr (parse str) )]
     [(list 'strRef args ...) (parsePrimitiveArgs 'strRef args)]
-    [(list 'list args ...)
-       (listHandler args)
-     ]
+    [(list 'list args ...) (listHandler args) ]
     
     [(list 'car list) (Zcar (parse list))]
     [(list 'cdr list) (Zcdr (parse list))]
@@ -132,8 +136,10 @@
     [(list 'openbox e) (openbox (parse e))]
     [(list 'setbox b v) (setbox (parse b) (parse v))]
     [(list 'seqn e1 e2) (seqn (parse e1) (parse e2))]
-    [(list arg e) (app (parse arg) (parse e))]
-    [(list 'fun (list arg) body) (fun arg (parse body))]
+    [(list 'fun (cons arg tail) body) (if (empty? tail) (fun  arg (parse body)) (fun  arg (parse (list 'fun tail body))))]
+    [(list arg exps ...) (appFunctionParser arg exps)]
+    
+    
     )
   )
 
@@ -184,7 +190,7 @@
      (def (v*s (valV (Zcons f-val r-val)) l-sto) (interp l env sto)) 
      (v*s r-val sto)
      ]
-    [(fun arg body) (v*s (closureV arg body env) sto)]
+    [(fun arg body)(v*s (closureV arg body env) sto)]
     [(id x) (v*s (sto-lookup (env-lookup x env) sto) sto)]
     
     [(prim operation l r)
@@ -204,10 +210,10 @@
          (interp ef env cond-sto))]
      
     [(app f e)
+     
      (def (v*s (closureV arg body fenv) fSto) (interp f env sto))
      (def (v*s exp-val exp-sto) (interp e env fSto))
      (def new-loc (malloc exp-sto))
-     
      (interp body (extend-env arg new-loc fenv) (extend-sto new-loc exp-val exp-sto))]
     [(newbox b)
      
@@ -264,6 +270,8 @@
       [(boxV loc) res])
   
     )
+
+
 ;Pruebas If -----------------------------------------------
 (test (run '(if-tf (== 3 2) "fue true" "fue false")) "fue false")
 (test (run '(if-tf (== 3 3) "fue true" "fue false")) "fue true")
@@ -283,7 +291,15 @@
 (run '(car (cdr {list (+ 68 1) 1 3})))
 (run '(empty))
 
+;N argumentos en funciones --------------------------
+(test (run '{{fun (a) {+ a 2}} 3}) 5)
+(test (run '{{fun (a b) {+ a b}} 1 4}) 5)
+(test (run '{{fun (a b c) {+ a {- b c}}} 3 2 1}) 4)
 
+(test (run '{{fun (a b c d e f g) {+ a {- b c}}} 3 2 1 1 5 8 7}) 4)
+
+; prueba funciones con N args dentro de with -----------------
+(test (run '{with {add {fun {a b c} {+ a {+ b c}}}} {+ {add 2 3 5 } {add 4 5 6}}}) 25)
 
 ;-------------------------------------------------------Pruebas base
 
