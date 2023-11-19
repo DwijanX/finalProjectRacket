@@ -37,6 +37,7 @@
   [openbox b]
   [setbox b n]
   [seqn e1 e2]
+  [appL f e]
 )
 (define empty-list '())
 
@@ -103,7 +104,16 @@
       (appFunctionParser (list arg (car exps)) (cdr exps)  )
       )
   )
+(define (appFunctionParserLazy arg exps)
 
+  (match arg
+    [(list arg2 exps ...) (display arg)]
+    )
+  (if (empty? (cdr exps))
+      (appL (parse arg) (parse (car exps)))
+      (appFunctionParserLazy (list arg (car exps)) (cdr exps)  )
+      )
+  )
 ; parse: Src -> Expr
 ; parsea codigo fuente
 (define (parse src)
@@ -130,6 +140,7 @@
     [(list 'list args ...) (listHandler args) ]
     [(list 'delay expr) (delay (parse expr)) ]
     [(list 'force promise) (force (parse promise))]
+    
         
     [(list 'car list) (Zcar (parse list))]
     [(list 'cdr list) (Zcdr (parse list))]
@@ -143,6 +154,7 @@
     [(list 'fun (cons arg tail) body) (if (empty? tail) (fun  arg (parse body)) (fun  arg (parse (list 'fun tail body))))]
     [(list 'rec (list id function) b)
      (parse `{with {,id {Y (fun (,id) ,function)}} ,b})]
+    [(list 'lazy arg exps ...) (appFunctionParserLazy arg exps)]
     [(list arg exps ...) (appFunctionParser arg exps)]
     
     
@@ -157,6 +169,12 @@
   (boxV loc)
   )
 
+(define (strict valSto )
+  (match valSto
+    [(v*s (promiseV e env) sto ) (strict (interp e env sto))]
+    [else valSto]
+    )
+  )
 (define (getPrimitive prim)
   (match prim
     ['+ +]
@@ -176,6 +194,7 @@
     ['|| (λ (a b)(or a b))]
     )
   )
+
 
 ; interp :: Expr  Env -> Val
 ; interpreta una expresion
@@ -201,8 +220,9 @@
     [(id x) (v*s (sto-lookup (env-lookup x env) sto) sto)]
     
     [(prim operation l r)
-     (def (v*s l-val l-sto) (interp l env sto))
-     (def (v*s r-val r-sto) (interp r env l-sto))
+     
+     (def (v*s l-val l-sto) (strict (interp l env sto)))
+     (def (v*s r-val r-sto) (strict (interp r env l-sto)))
      (v*s (valVOperation (getPrimitive operation) l-val r-val) r-sto)]
     
     [(1argPrim operation v)
@@ -215,7 +235,10 @@
      (if (valV-v cond-val)
          (interp et env cond-sto) 
          (interp ef env cond-sto))]
-     
+    [(appL f e)
+     (def (v*s (closureV arg body fenv) fSto) (interp f env sto))
+     (def new-loc (malloc fSto))
+     (interp body (extend-env arg new-loc fenv) (extend-sto new-loc (promiseV e env) fSto))] 
     [(app f e)
      (def (v*s (closureV arg body fenv) fSto) (interp f env sto))
      (def (v*s exp-val exp-sto) (interp e env fSto))
@@ -294,7 +317,17 @@
       [(boxV loc) res])
   
     )
-
+(define (runToCheckLazy prog)
+  
+  (def (v*s res sto) (interp (parse prog) envWithY (stoWithY)))
+   (display sto)
+    (match res
+      [(valV v) v]
+      [(promiseV expr env) res]
+      [(closureV arg body env) res]
+      [(boxV loc) res])
+  
+    )
 
 ;Pruebas If -----------------------------------------------
 (test (run '(if-tf (== 3 2) "fue true" "fue false")) "fue false")
@@ -343,6 +376,8 @@
                              
                         {if-tf {== n1 0} 0 {+ (* n1 n2) {mult0 (- n1 1) n2}}}}
                         } {mult0 4 3}}) 30)
+;Pruebas lazy
+(test (parse '{lazy {fun (a b) {+ b 2}} (+ 1 5) (+ 2 3)}) 7)
 ;-------------------------------------------------------Pruebas base
 
 (test (run '{* -2 3 4}) -24)
