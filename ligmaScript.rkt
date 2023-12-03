@@ -105,13 +105,16 @@
       )
   )
 (define (appFunctionParserLazy arg exps)
-
-  (match arg
-    [(list arg2 exps ...) (display arg)]
-    )
+  
   (if (empty? (cdr exps))
-      (appL (parse arg) (parse (car exps)))
-      (appFunctionParserLazy (list arg (car exps)) (cdr exps)  )
+      (let ([leftArg (match arg
+              [(list 'fun (cons arg1 tail) body) (parse arg)]
+              [(list arg1 exps1 ...) (appFunctionParserLazy arg1 exps1)]
+              [else (parse arg)]
+              )])
+        (appL leftArg (parse (car exps)))
+        )
+      (appFunctionParserLazy (list arg (car exps)) (cdr exps))
       )
   )
 ; parse: Src -> Expr
@@ -363,7 +366,7 @@
 (test (run'{force {delay (+ 5 5)}}) 10)
 (test (run '(with {a (delay (* 5 5))} (force a))) 25)
 
-;Pruebas rec
+;Pruebas rec  ---------------------------------------
 (test (run '{rec {sum {fun {n}
                         {if-tf {== 0 n} 0 {+ n {sum {- n 1}}}}}} {sum 5}}) 15)
 (test (run '{rec {sum {fun {n}
@@ -376,8 +379,13 @@
                              
                         {if-tf {== n1 0} 0 {+ (* n1 n2) {mult0 (- n1 1) n2}}}}
                         } {mult0 4 3}}) 30)
-;Pruebas lazy
-(test (parse '{lazy {fun (a b) {+ b 2}} (+ 1 5) (+ 2 3)}) 7)
+;Pruebas lazy  ---------------------------------------
+;(display "Showing storage of lazy function\n")
+;(test (runToCheckLazy '{lazy {fun (a b) {+ b 2}} (+ 1 5) (+ 2 3)}) 7)
+;(display "\n")
+(display "Showing storage of lazy function\n")
+(test (runToCheckLazy '{lazy {fun (a c b) {+ b 2}} (+ 1 5) #f (+ 2 3) }) 7)
+(display "\n")
 ;-------------------------------------------------------Pruebas base
 
 (test (run '{* -2 3 4}) -24)

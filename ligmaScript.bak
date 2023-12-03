@@ -1,14 +1,14 @@
 #lang play
-(print-only-errors #f) ; Para ver solo los errores.
+(print-only-errors #t) ; Para ver solo los errores.
 
 #|
-<FAE> ::=   <num> | <bool> | <id>
-            | (+ <FAE> <FAE>)
-            | (- <FAE> <FAE>)
-            | (if-tf <FAE> <FAE> <FAE>)
-            | (with <id> <FAE> <FAE>)
-            | (app <FAE> <FAE>) ; puedo aplicar una funcion a otra funcion / puedo usar una funcion como argumento. 
-            | (fun <id> <FAE>) ; fun(que es una lambda) nombre-arg body
+<ZPKS> ::=   <num> | <bool> | <id> | <str>
+            | (+ <ZPKS> <ZPKS>)
+            | (- <ZPKS> <ZPKS>)
+            | (if-tf <ZPKS> <ZPKS> <ZPKS>)
+            | (with <id> <ZPKS> <ZPKS>)
+            | (app <ZPKS> <ZPKS>) ; puedo aplicar una funcion a otra funcion / puedo usar una funcion como argumento. 
+            | (fun <id> <ZPKS>) ; fun(que es una lambda) nombre-arg body
 |#
 
 ; Ejemplos de uso de una funcion como valor
@@ -20,16 +20,31 @@
 (deftype Expr
   [num n]                                 ; <num>
   [bool b]                                ; <bool>
-  [add l r]                               ; (+ <FAE> <FAE>)
-  [sub l r]                               ; (- <FAE> <FAE>)
-  [if-tf c et ef]                         ; (if-tf <FAE> <FAE> <FAE>)
-  [with id-name named-expr body-expr]     ; (with <id> <FAE> <FAE>)
+  [str s]                                 ; <str>
+  [list1 f r]
+  [Zcar l]
+  [Zcdr l]
+  [prim operation l r]                    ; (prim <procedure> <ZPKS> <ZPKS>)
+  [1argPrim operation v]
+  [if-tf c et ef]                         ; (if-tf <ZPKS> <ZPKS> <ZPKS>)
+  [with id-name named-expr body-expr]     ; (with <id> <ZPKS> <ZPKS>)
   [id name]                               ; <id> 
-  [app fname arg-expr]                    ; (app <FAE> <FAE>) ; ahora podemos aplicar una funcion a otra
-  [fun arg body]                          ; (fun <id> <FAE>) ; mantenemos el <id> como el nombre del argumento
-) 
+  [app fname arg-expr]                    ; (app <ZPKS> <ZPKS>) ; ahora podemos aplicar una funcion a otra
+  [fun arg body]                          ; (fun <id> <ZPKS>) ; mantenemos el <id> como el nombre del argumento
+  [delay e]                               ; (delay <ZPKS) -> promise
+  [force p]                               ; (force promise) -> val
+  [newbox b]
+  [openbox b]
+  [setbox b n]
+  [seqn e1 e2]
+  [appL f e]
+)
+(define empty-list '())
 
-
+(deftype customList
+  (mtList)
+  (Zcons f r)
+  )
 #|
 <env> ::= (mtEnv)
           | (aEnv <id> <val> <env>)
@@ -52,7 +67,56 @@
     [(aEnv id val tail)(if (eq? id x) val (env-lookup x tail))]
     )
   )
+(deftype Sto
+  (mtSto)
+  (aSto loc val sto)
+  )
+(define empty-sto (mtSto))
 
+(define extend-sto aSto)
+
+(define (sto-lookup l sto)
+  (match sto
+    [(mtSto) (error "segmentation fault:" l)]
+    [(aSto loc val tail)(if (eq? loc l) val (sto-lookup l tail))]
+    )
+  )
+
+(define (parsePrimitiveArgs operation args)
+  (if (empty? (cdr args))
+               (parse (car args))
+               (prim operation (parse (car args)) (parsePrimitiveArgs operation (cdr args)))))
+(define (divisionParser args)
+      (cond
+        [(empty? (cdr args)) (parse (car args))]
+        [(empty? (cdr (cdr args)))  (prim '/ (parse (car args)) (parse (cadr args)))]
+        [else (prim '/ (prim '/ (parse (car args)) (parse (cadr args))) (divisionParser (cdr (cdr args))))]
+          )
+  )
+
+(define (listHandler  args)
+  (if (empty? (cdr args))
+                        (list1 (parse (car args)) (mtList))
+                        (list1 (parse (car args)) (listHandler  (cdr args)))))
+(define (appFunctionParser arg exps)
+  (if (empty? (cdr exps))
+      (app (parse arg) (parse (car exps)))
+      (appFunctionParser (list arg (car exps)) (cdr exps)  )
+      )
+  )
+(define (appFunctionParserLazy arg exps)
+  
+  (if (empty? (cdr exps))
+      (let ([leftArg (match arg
+              [(list 'fun (cons arg1 tail) body) (parse arg)]
+              [(list arg1 exps1 ...) (appFunctionParserLazy arg1 exps1)]
+              [else (parse arg)]
+              )])
+        (appL leftArg (parse (car exps)))
+        )
+      (appFunctionParserLazy (list arg (car exps)) (cdr exps))
+      )
+  )
 ; parse: Src -> Expr
 ; parsea codigo fuente
 (define (parse src)
@@ -60,61 +124,273 @@
     [(? number?) (num src)]
     [(? boolean?) (bool src)]
     [(? symbol?) (id src)]
-    [(list '+ s1 s2) (add (parse s1) (parse s2))]
-    [(list '- s1 s2) (sub (parse s1) (parse s2))]
+    [(? string?) (str src)]
+    [(list '/ args ...) (divisionParser args)]
+    [(list '+ args ...) (parsePrimitiveArgs '+ args)]
+    [(list '- args ...) (parsePrimitiveArgs '- args)]
+    [(list '* args ...) (parsePrimitiveArgs '* args)]
+    [(list '< args ...) (parsePrimitiveArgs '< args)]
+    [(list '<= args ...)(parsePrimitiveArgs '<= args)]
+    [(list '> args ...) (parsePrimitiveArgs '> args)]
+    [(list '>= args ...) (parsePrimitiveArgs '>= args)]
+    [(list '== args ...) (parsePrimitiveArgs 'eq? args)]
+    [(list '!= args ...) (parsePrimitiveArgs '!= args)]
+    [(list '&& args ...) (parsePrimitiveArgs '&& args)]
+    [(list '|| args ...) (parsePrimitiveArgs '|| args)]
+    [(list 'appendStr args ...) (parsePrimitiveArgs 'appendStr args)]
+    [(list 'lenStr str) (1argPrim 'lenStr (parse str) )]
+    [(list 'strRef args ...) (parsePrimitiveArgs 'strRef args)]
+    [(list 'list args ...) (listHandler args) ]
+    [(list 'delay expr) (delay (parse expr)) ]
+    [(list 'force promise) (force (parse promise))]
+    
+        
+    [(list 'car list) (Zcar (parse list))]
+    [(list 'cdr list) (Zcdr (parse list))]
+    [(list 'empty) (mtList)]
     [(list 'if-tf c et ef) (if-tf (parse c) (parse et) (parse ef))]
-    [(list 'with (list x e) b) (with x (parse e) (parse b))]
-    [(list arg e) (app (parse arg) (parse e))]; 2. Subir de nivel nuestras funciones
-    [(list 'fun (list arg) body) (fun arg (parse body))] ; 1. Agregar el caso del fun
+    [(list 'with (list x e) b) (app (fun x (parse b)) (parse e))]
+    [(list 'newbox b) (newbox (parse b))]
+    [(list 'openbox e) (openbox (parse e))]
+    [(list 'setbox b v) (setbox (parse b) (parse v))]
+    [(list 'seqn e1 e2) (seqn (parse e1) (parse e2))]
+    [(list 'fun (cons arg tail) body) (if (empty? tail) (fun  arg (parse body)) (fun  arg (parse (list 'fun tail body))))]
+    [(list 'rec (list id function) b)
+     (parse `{with {,id {Y (fun (,id) ,function)}} ,b})]
+    [(list 'lazy arg exps ...) (appFunctionParserLazy arg exps)]
+    [(list arg exps ...) (appFunctionParser arg exps)]
+    
+    
     )
   )
 
 (deftype Val
   (valV v) ; numero, booleano, string, byte, etc.
+  (promiseV expr env)
   (closureV arg body env) ; closure = fun + env
-
+  (v*s val sto)
+  (boxV loc)
   )
 
-; interp :: Expr  Env -> Val
-; interpreta una expresion
-(define (interp expr env)
-  (match expr
-    [(num n) (valV n)]
-    [(bool b) (valV b)]
-    [(id x) (env-lookup x env)]; buscar el valor de x en env
-    [(add l r) (valV+ (interp l env) (interp r env))]
-    [(sub l r) (valV- (interp l env) (interp r env))]
-    [(if-tf c et ef) (if (valV-v (interp c env))
-                         (interp et env)
-                         (interp ef env))]
-    [(with x e b) (interp b (extend-env x (interp e env) env))] ; Si asociamos una funcion a una variable, la funcion entra al env
-    [(fun arg body) (closureV arg body env)] ; Por ahora, devolvemos la misma expresion que nos llego
-    [(app f e)
-     (def (closureV arg body fenv) (interp f env)) ; Esto permite encontrar (fun 'x (add (id 'x) (id 'x))) por ejemplo y tomar arg y body
-    
-     (interp body (extend-env arg (interp e env) fenv)) ; parece que no funciona ni con estatico ni dinamico
-     ]
-))
-
-; valV+ : Val -> Val
-(define (valV+ s1 s2)
-  (valV (+ (valV-v s1) (valV-v s2)))
+(define (strict valSto )
+  (match valSto
+    [(v*s (promiseV e env) sto ) (strict (interp e env sto))]
+    [else valSto]
+    )
   )
-
-(define (valV- s1 s2)
-  (valV (- (valV-v s1) (valV-v s2)))
-  )
-
-; run: Src -> Src
-; corre un programa
-(define (run prog)
-  (let ([res (interp (parse prog) empty-env)])
-    (match res
-      [(valV v) v]
-      [(closureV arg body env) res])
+(define (getPrimitive prim)
+  (match prim
+    ['+ +]
+    ['- -]
+    ['* *]
+    ['/ (λ (a b)(/ a b))]
+    ['< <]
+    ['<= <=]
+    ['> >]
+    ['>= >=]
+    ['eq? eq?]
+    ['!= (λ (a b)(not (eq? a b)))]
+    ['appendStr string-append]
+    ['lenStr string-length]
+    ['strRef string-ref]
+    ['&& (λ (a b)(and a b))]
+    ['|| (λ (a b)(or a b))]
     )
   )
 
+
+; interp :: Expr  Env -> Val
+; interpreta una expresion
+(define (interp expr env sto)
+  (match expr
+    [(num n) (v*s (valV n) sto)]
+    [(bool b) (v*s (valV b) sto)]
+    [(str s) (v*s (valV s) sto)]
+    [(mtList) (v*s (valV '()) sto)]
+    [(list1 f r)
+     (def (v*s f-val f-sto) (interp f env sto))
+     (def (v*s r-val r-sto) (interp r env f-sto))
+     (v*s (valV (Zcons f-val r-val)) sto)]
+    [(Zcar l)
+     (def (v*s (valV (Zcons f-val r-val)) l-sto) (interp l env sto)) 
+     (v*s f-val sto)
+     ]
+    [(Zcdr l)
+     (def (v*s (valV (Zcons f-val r-val)) l-sto) (interp l env sto)) 
+     (v*s r-val sto)
+     ]
+    [(fun arg body)(v*s (closureV arg body env) sto)]
+    [(id x) (v*s (sto-lookup (env-lookup x env) sto) sto)]
+    
+    [(prim operation l r)
+     
+     (def (v*s l-val l-sto) (strict (interp l env sto)))
+     (def (v*s r-val r-sto) (strict (interp r env l-sto)))
+     (v*s (valVOperation (getPrimitive operation) l-val r-val) r-sto)]
+    
+    [(1argPrim operation v)
+     (def (v*s val v-sto) (interp v env sto))
+     (v*s (valVOperation1Arg (getPrimitive operation) val ) v-sto)
+     ]
+    
+    [(if-tf c et ef)
+     (def (v*s cond-val cond-sto) (interp c env sto))
+     (if (valV-v cond-val)
+         (interp et env cond-sto) 
+         (interp ef env cond-sto))]
+    [(appL f e)
+     (def (v*s (closureV arg body fenv) fSto) (interp f env sto))
+     (def new-loc (malloc fSto))
+     (interp body (extend-env arg new-loc fenv) (extend-sto new-loc (promiseV e env) fSto))] 
+    [(app f e)
+     (def (v*s (closureV arg body fenv) fSto) (interp f env sto))
+     (def (v*s exp-val exp-sto) (interp e env fSto))
+     (def new-loc (malloc exp-sto))
+     (interp body (extend-env arg new-loc fenv) (extend-sto new-loc exp-val exp-sto))]
+    [(delay expr) (v*s (promiseV expr env) sto)]
+    [(force expr)
+     (def (v*s (promiseV expr-p env-p) exp-sto) (interp expr env sto))
+     
+     (interp expr-p env-p exp-sto)]
+    [(newbox b)
+     
+     (def (v*s exp-val exp-sto) (interp b env sto))
+     (def new-loc (malloc exp-sto))
+     (v*s (boxV new-loc) (extend-sto new-loc exp-val exp-sto))
+     ]
+    [(openbox b)
+     (def (v*s (boxV loc) intSto) (interp b env sto))
+     (v*s (sto-lookup loc intSto) intSto)
+     ]
+    [(setbox b n)
+     (def (v*s (boxV loc) intSto) (interp b env sto))
+     (def (v*s exp-val exp-sto) (interp n env intSto))
+     
+     (v*s (boxV loc) (extend-sto loc exp-val exp-sto))
+     ]
+    [(seqn e1 e2)
+     (def (v*s e1val e1sto) (interp e1 env sto))
+     (def ans (interp e2 env e1sto))
+     ans
+     ]
+
+))
+(define (malloc sto)
+  (match sto
+    [(mtSto) 0]
+    [(aSto loc _ tail) (+ 1 (malloc tail))]
+    )
+  )
+
+; valV+ : procedure,Val -> Val
+(define (valVOperation op s1 s2)
+  (valV (op (valV-v s1) (valV-v s2)))
+  
+  )
+(define (valVOperation1Arg op s1)
+  
+  (valV (op (valV-v s1) ))
+  
+  )
+
+
+
+; run: Src -> Src
+; corre un programa
+
+(define envWithY (aEnv 'Y  0 (mtEnv)))
+
+(define (stoWithY)
+  
+    (def (v*s val sto) (interp (parse '{fun {f}
+        {with {h {fun {g}
+                         {fun {n}
+                                 {{f {g g}} n}}}}
+              {h h}}}) (mtEnv) (mtSto))) 
+  (aSto 0 val (mtSto)))
+
+(define (run prog)
+  
+  (def (v*s res sto) (interp (parse prog) envWithY (stoWithY)))
+   
+    (match res
+      [(valV v) v]
+      [(promiseV expr env) res]
+      [(closureV arg body env) res]
+      [(boxV loc) res])
+  
+    )
+(define (runToCheckLazy prog)
+  
+  (def (v*s res sto) (interp (parse prog) envWithY (stoWithY)))
+   (display sto)
+    (match res
+      [(valV v) v]
+      [(promiseV expr env) res]
+      [(closureV arg body env) res]
+      [(boxV loc) res])
+  
+    )
+
+;Pruebas If -----------------------------------------------
+(test (run '(if-tf (== 3 2) "fue true" "fue false")) "fue false")
+(test (run '(if-tf (== 3 3) "fue true" "fue false")) "fue true")
+;Pruebas strings---------------------------------------------
+(test (run '"soy un string") "soy un string")
+(test (run '(appendStr "string 1 " "string 2") )"string 1 string 2")
+(test (run '(appendStr "string 1 " "string 2 " "string 3") )"string 1 string 2 string 3")
+(test (run '(lenStr (appendStr "string 1 " "string 2 " "string 3"))) 26)
+(test (run '(strRef (appendStr "string 1 " "string 2 " "string 3") 1)) #\t)
+(test (run '(strRef (appendStr "string 1 " "string 2 " "string 3") 0)) #\s)
+(test (run '(strRef (appendStr "string 1 " "string 2 " "string 3") 7)) #\1)
+;(parse '(lenStr (appendStr "string 1 " "string 2 " "string 3")))
+
+(run '{list (+ 3 5) 1 3})
+(run '(car {list (+ 68 1) 1 3}))
+(run '(cdr {list (+ 68 1) 1 3}))
+(run '(car (cdr {list (+ 68 1) 1 3})))
+(run '(empty))
+
+;N argumentos en funciones --------------------------
+(test (run '{{fun (a) {+ a 2}} 3}) 5)
+(test (run '{{fun (a b) {+ a b}} 1 4}) 5)
+(test (run '{{fun (a b c) {+ a {- b c}}} 3 2 1}) 4)
+
+(test (run '{{fun (a b c d e f g) {+ a {- b c}}} 3 2 1 1 5 8 7}) 4)
+
+; prueba funciones con N args dentro de with -----------------
+(test (run '{with {add {fun {a b c} {+ a {+ b c}}}} {+ {add 2 3 5 } {add 4 5 6}}}) 25)
+
+; Pruebas delay force ---------------------------------------
+(test (run '{delay (+ 5 5)}) (promiseV (prim '+ (num 5) (num 5)) (aEnv 'Y 0 (mtEnv))))
+(test (run'{force {delay (+ 5 5)}}) 10)
+(test (run '(with {a (delay (* 5 5))} (force a))) 25)
+
+;Pruebas rec  ---------------------------------------
+(test (run '{rec {sum {fun {n}
+                        {if-tf {== 0 n} 0 {+ n {sum {- n 1}}}}}} {sum 5}}) 15)
+(test (run '{rec {sum {fun {n}
+                        {if-tf {== 0 n} 0 {+ n {sum {- n 1}}}}}} {sum 3}}) 6)
+(test (run '{rec {fact {fun {n}
+                        {if-tf {== 0 n} 1 {* n {fact {- n 1}}}}}} {fact 4}}) 24)
+
+
+(test (run '{rec {mult0 {fun {n1 n2}
+                             
+                        {if-tf {== n1 0} 0 {+ (* n1 n2) {mult0 (- n1 1) n2}}}}
+                        } {mult0 4 3}}) 30)
+;Pruebas lazy  ---------------------------------------
+;(display "Showing storage of lazy function\n")
+;(test (runToCheckLazy '{lazy {fun (a b) {+ b 2}} (+ 1 5) (+ 2 3)}) 7)
+;(display "\n")
+(display "Showing storage of lazy function\n")
+(test (runToCheckLazy '{lazy {fun (a c b) {+ b 2}} (+ 1 5) #f (+ 2 3) }) 7)
+(display "\n")
+;-------------------------------------------------------Pruebas base
+
+(test (run '{* -2 3 4}) -24)
+
+(test (run '{+ 3 (- 5 3)}) 5)
 (test (run '{+ 3 4}) 7)
 (test (run '{- 5 1}) 4)
 (test (run '{+ 3 4}) 7)
@@ -140,3 +416,4 @@
 (test (run '{&& #f #t}) #f)
 (test (run '{|| #f #t}) #t)
 (test (run '{|| 12 11}) 12)
+
