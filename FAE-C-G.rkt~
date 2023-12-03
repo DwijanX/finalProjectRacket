@@ -251,11 +251,11 @@
     [(str s) (v*s (valV s) sto)]
     [(mtList) (v*s (valV '()) sto)]
     [(list1 f r)
-     (def (v*s f-val f-sto) (strict (interp f env sto)))
-     (def (v*s r-val r-sto) (strict (interp r env f-sto)))
+     (def (v*s f-val f-sto) (interp f env sto))
+     (def (v*s r-val r-sto) (interp r env f-sto))
      (v*s (valV (Zcons f-val r-val)) sto)]
     [(Zcar l)
-     (def (v*s (valV (Zcons f-val r-val)) l-sto) (strict (interp l env sto))) 
+     (def (v*s (valV (Zcons f-val r-val)) l-sto) (interp l env sto)) 
      (v*s f-val sto)
      ]
     [(Zcdr l)
@@ -264,8 +264,8 @@
      ]
     [(take l n)
      
-     (def (v*s (valV (Zcons f-val r-val)) l-sto) (strict (interp l env sto)))
-     (def (v*s (valV n-val) n-sto) (strict (interp n env l-sto)))
+     (def (v*s (valV (Zcons f-val r-val)) l-sto) (interp l env sto))
+     (def (v*s (valV n-val) n-sto) (interp n env l-sto))
      (if (eq? n-val 0)
          (v*s f-val n-sto)
          (if (empty?(valV-v r-val))
