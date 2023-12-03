@@ -480,3 +480,7 @@
 
 
 
+;Pregunta 6
+;por defecto en la forma que esta nuestro lenguaje no da ya que usa el env con el que se guardo la promesa, si no fuera asi, si se podria
+
+(test/exn (run '(with {ones (delay (list 1 ones))} (take ones 34))) "undefined:  'ones")
