@@ -19,6 +19,7 @@
   [list1 f r]                             ; (list1 <ZPKS> <ZPKS>) ->val
   [Zcar l]                                ; (Zcar <ZPKS>) -> val
   [Zcdr l]                                ; (Zcdr <ZPKS>) -> val
+  [take l n]                              ; (take <ZPKS> <ZPKS>)
   [prim operation l r]                    ; (prim <procedureId> <ZPKS> <ZPKS>)
   [oneArgPrim operation v]                ; (oneArgPrim <procedureId> <ZPKS>)
   [if-tf c et ef]                         ; (if-tf <ZPKS> <ZPKS> <ZPKS>)
@@ -163,6 +164,7 @@
     [(list 'force promise) (force (parse promise))]
     [(list 'car list) (Zcar (parse list))]
     [(list 'cdr list) (Zcdr (parse list))]
+    [(list 'take list n) (take (parse list) (parse n))]
     [(list 'empty) (mtList)]
     [(list 'if-tf c et ef) (if-tf (parse c) (parse et) (parse ef))]
     [(list 'with (list x e) b) (app (fun x (parse b)) (parse e))]
@@ -238,6 +240,16 @@
      (def (v*s (valV (Zcons f-val r-val)) l-sto) (interp l env sto)) 
      (v*s r-val sto)
      ]
+    [(take l n)
+     
+     (def (v*s (valV (Zcons f-val r-val)) l-sto) (interp l env sto))
+     (def (v*s (valV n-val) n-sto) (interp n env l-sto))
+     (if (eq? n-val 0)
+         (v*s f-val n-sto)
+         (if (empty?(valV-v r-val))
+             (error "Index not found")
+             (interp (take r-val (valV (- n-val 1))) env n-sto)))
+     ]
     [(fun arg body)(v*s (closureV arg body env) sto)]
     [(id x) (v*s (sto-lookup (env-lookup x env) sto) sto)]
     
@@ -292,6 +304,7 @@
      (def ans (interp e2 env e1sto))
      ans
      ]
+    [(valV exp) (v*s expr sto)]
 
 ))
 ; malloc : sto -> loc
@@ -390,7 +403,12 @@
 (test (run '(car {list (+ 68 1) 1 3})) 69)
 (run '(cdr {list (+ 68 1) 1 3}))
 (test (run '(car (cdr {list (+ 68 1) 1 3}))) 1)
+
 (test (run '(empty)) '())
+(test (run '(take {list (+ 68 1) 1 3} 0)) 69)
+(test (run '(take {list (+ 68 1) 1 3} 1)) 1)
+(test (run '(take {list (+ 68 1) 1 3} 2)) 3)
+(test/exn (run '(take {list (+ 68 1) 1 3} 3)) "Index not found")
 
 ;N argumentos en funciones --------------------------
 (test (run '{{fun (a) {+ a 2}} 3}) 5)
