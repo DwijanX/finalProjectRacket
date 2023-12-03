@@ -309,11 +309,27 @@
               {h h}}}) (mtEnv) (mtSto))) 
   (aSto 0 val (mtSto)))
 
+
+(define (printArray mainArray)
+  (display "'(")
+  (letrec ([iterateOverArray (λ (arr) (match (valV-v arr)
+                                     [(Zcons first last) (if (empty? (valV-v last))
+                                                             (display (valV-v first))
+                                                             (begin (display (valV-v first)) (display " ") (iterateOverArray last))
+                                                             )]
+                                     ))])
+    (iterateOverArray mainArray)
+    )
+  (display ")\n")
+  )
+
+
 (define (run prog)
   
   (def (v*s res sto) (interp (parse prog) envWithY (stoWithY)))
    
     (match res
+      [(valV (Zcons first last)) (printArray res)]
       [(valV v) v]
       [(promiseV expr env) res]
       [(closureV arg body env) res]
@@ -386,6 +402,10 @@
 (display "Showing storage of lazy function\n")
 (test (runToCheckLazy '{lazy {fun (a c b) {+ b 2}} (+ 1 5) #f (+ 2 3) }) 7)
 (display "\n")
+
+
+
+
 ;-------------------------------------------------------Pruebas base
 
 (test (run '{* -2 3 4}) -24)
