@@ -11,36 +11,36 @@
             | (fun <id> <ZPKS>) ; fun(que es una lambda) nombre-arg body
 |#
 
-; Ejemplos de uso de una funcion como valor
-; {fun {x} {+ x 1}}
-; {{fun {x} {+ x 1}} 10} --> 11
-; {with {apply10 {fun {f} {f 10}}} {apply10 add1}}
-; {{addN 10} 20}
 
 (deftype Expr
   [num n]                                 ; <num>
   [bool b]                                ; <bool>
   [str s]                                 ; <str>
-  [list1 f r]
-  [Zcar l]
-  [Zcdr l]
-  [prim operation l r]                    ; (prim <procedure> <ZPKS> <ZPKS>)
-  [1argPrim operation v]
+  [list1 f r]                             ; (list1 <ZPKS> <ZPKS>) ->val
+  [Zcar l]                                ; (Zcar <ZPKS>) -> val
+  [Zcdr l]                                ; (Zcdr <ZPKS>) -> val
+  [prim operation l r]                    ; (prim <procedureId> <ZPKS> <ZPKS>)
+  [oneArgPrim operation v]                ; (oneArgPrim <procedureId> <ZPKS>)
   [if-tf c et ef]                         ; (if-tf <ZPKS> <ZPKS> <ZPKS>)
   [with id-name named-expr body-expr]     ; (with <id> <ZPKS> <ZPKS>)
   [id name]                               ; <id> 
   [app fname arg-expr]                    ; (app <ZPKS> <ZPKS>) ; ahora podemos aplicar una funcion a otra
   [fun arg body]                          ; (fun <id> <ZPKS>) ; mantenemos el <id> como el nombre del argumento
-  [delay e]                               ; (delay <ZPKS) -> promise
+  [delay e]                               ; (delay <ZPKS>) -> promise
   [force p]                               ; (force promise) -> val
-  [newbox b]
-  [openbox b]
-  [setbox b n]
-  [seqn e1 e2]
-  [appL f e]
+  [newbox b]                              ; (newbox <ZPKS>) ->loc
+  [openbox b]                             ; (openbox <ZPKS>)
+  [setbox b n]                            ; (setbox <ZPKS> <ZPKS>)
+  [seqn e1 e2]                            ; (seqn <ZPKS> <ZPKS>)
+  [appL f e]                              ; (appL <ZPKS> <ZPKS>)
 )
+; lista vacia
 (define empty-list '())
 
+#|
+<customList> ::= (mtList)
+          | (Zcons <first> <right> )
+|#
 (deftype customList
   (mtList)
   (Zcons f r)
@@ -67,14 +67,22 @@
     [(aEnv id val tail)(if (eq? id x) val (env-lookup x tail))]
     )
   )
+#|
+<sto> ::= (mtSto)
+          | (aSto <loc> <val> <sto>)
+|#
 (deftype Sto
   (mtSto)
   (aSto loc val sto)
   )
+; empty-sto -> (mtSto)
+; devuelve un storage vacio
 (define empty-sto (mtSto))
-
+; extend-sto <loc> <val> <sto> -> <sto>
+; agrega una clave-valor al storage y devuelve el eactualizado
 (define extend-sto aSto)
-
+; sto-lookup :: <loc> <sto> -> <val>
+; buscar el valor de una direccion de memoria dentro del storage
 (define (sto-lookup l sto)
   (match sto
     [(mtSto) (error "segmentation fault:" l)]
@@ -82,10 +90,14 @@
     )
   )
 
+; listHandler :'primitiveId:string,src  -> Expr
+; se encarga de parsear funciones primitivas del lenguaje
 (define (parsePrimitiveArgs operation args)
   (if (empty? (cdr args))
                (parse (car args))
                (prim operation (parse (car args)) (parsePrimitiveArgs operation (cdr args)))))
+; listHandler :src -> Expr
+; se encarga de parsear la operacion division
 (define (divisionParser args)
       (cond
         [(empty? (cdr args)) (parse (car args))]
@@ -93,17 +105,22 @@
         [else (prim '/ (prim '/ (parse (car args)) (parse (cadr args))) (divisionParser (cdr (cdr args))))]
           )
   )
-
+; listHandler :src -> Expr
+; se encarga de parsear listas 
 (define (listHandler  args)
   (if (empty? (cdr args))
-                        (list1 (parse (car args)) (mtList))
-                        (list1 (parse (car args)) (listHandler  (cdr args)))))
+      (list1 (parse (car args)) (mtList))
+      (list1 (parse (car args)) (listHandler  (cdr args)))))
+; appFunctionParser :src,src -> Expr
+; se encarga de parsear porciones de codigo que incluyen una aplicacion de funcion 
 (define (appFunctionParser arg exps)
   (if (empty? (cdr exps))
       (app (parse arg) (parse (car exps)))
       (appFunctionParser (list arg (car exps)) (cdr exps)  )
       )
   )
+; appFunctionParserLazy :src,src -> Expr
+; se encarga de parsear porciones de codigo que incluyen una aplicacion de funcion perezosa
 (define (appFunctionParserLazy arg exps)
   
   (if (empty? (cdr exps))
@@ -117,6 +134,7 @@
       (appFunctionParserLazy (list arg (car exps)) (cdr exps))
       )
   )
+
 ; parse: Src -> Expr
 ; parsea codigo fuente
 (define (parse src)
@@ -138,13 +156,11 @@
     [(list '&& args ...) (parsePrimitiveArgs '&& args)]
     [(list '|| args ...) (parsePrimitiveArgs '|| args)]
     [(list 'appendStr args ...) (parsePrimitiveArgs 'appendStr args)]
-    [(list 'lenStr str) (1argPrim 'lenStr (parse str) )]
+    [(list 'lenStr str) (oneArgPrim 'lenStr (parse str) )]
     [(list 'strRef args ...) (parsePrimitiveArgs 'strRef args)]
     [(list 'list args ...) (listHandler args) ]
     [(list 'delay expr) (delay (parse expr)) ]
     [(list 'force promise) (force (parse promise))]
-    
-        
     [(list 'car list) (Zcar (parse list))]
     [(list 'cdr list) (Zcdr (parse list))]
     [(list 'empty) (mtList)]
@@ -171,13 +187,16 @@
   (v*s val sto)
   (boxV loc)
   )
-
+; strict :: v*s  -> v*s
+; Fuerza la evaluacion de las promesas
 (define (strict valSto )
   (match valSto
     [(v*s (promiseV e env) sto ) (strict (interp e env sto))]
     [else valSto]
     )
   )
+; getPrimitive :: primitiveId  -> procedure
+; Devuelve el procedimiento de la primitiva
 (define (getPrimitive prim)
   (match prim
     ['+ +]
@@ -199,7 +218,7 @@
   )
 
 
-; interp :: Expr  Env -> Val
+; interp :: Expr  Env Sto -> Val
 ; interpreta una expresion
 (define (interp expr env sto)
   (match expr
@@ -228,7 +247,7 @@
      (def (v*s r-val r-sto) (strict (interp r env l-sto)))
      (v*s (valVOperation (getPrimitive operation) l-val r-val) r-sto)]
     
-    [(1argPrim operation v)
+    [(oneArgPrim operation v)
      (def (v*s val v-sto) (interp v env sto))
      (v*s (valVOperation1Arg (getPrimitive operation) val ) v-sto)
      ]
@@ -275,6 +294,8 @@
      ]
 
 ))
+; malloc : sto -> loc
+; devuelve un loc de memoria en el storage
 (define (malloc sto)
   (match sto
     [(mtSto) 0]
@@ -282,24 +303,26 @@
     )
   )
 
-; valV+ : procedure,Val -> Val
+; valVOperation : procedure,Val,val -> Val
+; ejecuta primitivas de 2 argumentos
 (define (valVOperation op s1 s2)
   (valV (op (valV-v s1) (valV-v s2)))
   
   )
+; valVOperation : procedure,Val -> Val
+; ejecuta primitivas de 1 argumento
 (define (valVOperation1Arg op s1)
-  
   (valV (op (valV-v s1) ))
-  
   )
 
 
 
-; run: Src -> Src
-; corre un programa
 
+; envWithY  -> env
+; devuelve un env con el id Y apuntando al loc 0
 (define envWithY (aEnv 'Y  0 (mtEnv)))
-
+; stoWithY  -> sto
+; devuelve un storage con el combinador Y
 (define (stoWithY)
   
     (def (v*s val sto) (interp (parse '{fun {f}
@@ -309,7 +332,8 @@
               {h h}}}) (mtEnv) (mtSto))) 
   (aSto 0 val (mtSto)))
 
-
+; printArray (Zcons f l) -> void
+; imprime el array de forma mas amigable
 (define (printArray mainArray)
   (display "'(")
   (letrec ([iterateOverArray (λ (arr) (match (valV-v arr)
@@ -323,11 +347,10 @@
   (display ")\n")
   )
 
-
+; run: Src -> Src
+; corre un programa
 (define (run prog)
-  
   (def (v*s res sto) (interp (parse prog) envWithY (stoWithY)))
-   
     (match res
       [(valV (Zcons first last)) (printArray res)]
       [(valV v) v]
@@ -336,6 +359,8 @@
       [(boxV loc) res])
   
     )
+; run: Src -> Src
+; corre un programa pero muestra el storage
 (define (runToCheckLazy prog)
   
   (def (v*s res sto) (interp (parse prog) envWithY (stoWithY)))
@@ -362,10 +387,10 @@
 ;(parse '(lenStr (appendStr "string 1 " "string 2 " "string 3")))
 
 (run '{list (+ 3 5) 1 3})
-(run '(car {list (+ 68 1) 1 3}))
+(test (run '(car {list (+ 68 1) 1 3})) 69)
 (run '(cdr {list (+ 68 1) 1 3}))
-(run '(car (cdr {list (+ 68 1) 1 3})))
-(run '(empty))
+(test (run '(car (cdr {list (+ 68 1) 1 3}))) 1)
+(test (run '(empty)) '())
 
 ;N argumentos en funciones --------------------------
 (test (run '{{fun (a) {+ a 2}} 3}) 5)
@@ -404,8 +429,6 @@
 (display "\n")
 
 
-
-
 ;-------------------------------------------------------Pruebas base
 
 (test (run '{* -2 3 4}) -24)
@@ -436,4 +459,6 @@
 (test (run '{&& #f #t}) #f)
 (test (run '{|| #f #t}) #t)
 (test (run '{|| 12 11}) 12)
+
+
 
