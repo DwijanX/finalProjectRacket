@@ -108,7 +108,7 @@
 ; buscar el valor de una direccion de memoria dentro del storage
 (define (sto-lookup l sto)
   (match sto
-    [(mtSto) (error "segmentation fault:" l)]
+    [(mtSto) (error "undefined")]
     [(aSto loc val tail)(if (eq? loc l) val (sto-lookup l tail))]
     )
   )
@@ -189,7 +189,9 @@
     [(list 'take list n) (take (parse list) (parse n))]
     [(list 'empty) (mtList)]
     [(list 'if-tf c et ef) (if-tf (parse c) (parse et) (parse ef))]
+    [(list 'with (cons (list x e) tail) b) (if (empty? tail)(app (fun x (parse b)) (parse e)) (app (fun x (parse (list 'with tail b))) (parse e)))]
     [(list 'with (list x e) b) (app (fun x (parse b)) (parse e))]
+    
     [(list 'newbox b) (newbox (parse b))]
     [(list 'openbox e) (openbox (parse e))]
     [(list 'setbox b v) (setbox (parse b) (parse v))]
@@ -386,18 +388,23 @@
 (deftype Type
   (Num)
   (Bool)
-  (Str))
+  (Str)
+ )
 
 ;typeof: expr -> type/error
 (define (typeof expr)
   (define (check-num-type l r)
-    (if (and (Num? (typeof l)) (Num? (typeof r)))
+    
+    (if (and  (Num? (typeof l) )
+              (Num? (typeof r) ))
         (Num)
         (error "type error")))
   (define (check-str-type l r)
-    (if (and (Str? (typeof l)) (Str? (typeof r)))
+    (if (and (Str? (typeof l)) 
+             (Str? (typeof r)) )
         (Str)
         (error "type error")))
+
   (match expr
     [(num n) (Num)]
     [(bool b) (Bool)]
@@ -412,23 +419,105 @@
     [(prim '>= l r) (check-num-type l r)]
     [(prim 'appendStr l r) (check-str-type l r)]
     [(oneArgPrim 'lenStr l) (if  (Str? (typeof l))
-        (Str)
-        (error "type error"))]
+                                 (Str)
+                                 (error "type error"))]
     [(prim 'strRef s n)
      (if (and (Str? (typeof s)) (Num? (typeof n)))
-        (Str)
-        (error "type error"))]
+         (Str)
+         (error "type error"))]
+    [(fun arg body) (typeof body)]
+    
+    [(app f e)
+     (typeof f)
+     ]
     [else "Type Checker not defined"]
     
     )
   )
 
+(define (constantPropagationEnvLookUp x env)
+  (match env
+    [(mtEnv) (id x)]
+    [(aEnv id val tail)(if (eq? id x) val (constantPropagationEnvLookUp x tail))]
+    )
+  )
+
+(define (constant-propagation expr [env (mtEnv)] [sto (mtSto)])
+  (match expr
+    [(num n) (num n)]
+    [(bool b) (bool b)]
+    [(id x) (let ([envAns (constantPropagationEnvLookUp x env)])
+              (if (id? envAns)
+                  envAns
+                  (sto-lookup (env-lookup x env) sto))
+              )]
+    [(prim prim-name l r)
+     (prim prim-name (constant-propagation l env sto) (constant-propagation r env sto))]
+    
+    [(if-tf c et ef) (if-tf (constant-propagation c env sto)
+                            (constant-propagation et env sto)
+                            (constant-propagation ef env sto))]
+    [(fun arg body) (fun arg body)]
+    
+    [(app f e)
+
+     (letrec ([propagateApp (λ (f args env sto)
+                              (match f
+                                [(fun arg body)
+                                 
+                                 (match body
+                                   [(fun arg2 body2)
+                                    
+                                    (def new-loc (malloc sto))
+                                    (fun arg (propagateApp body (cdr args) (extend-env arg new-loc env) (extend-sto new-loc (car args) sto)))
+                                    ]
+                                   [else
+                                    
+                                    (def new-loc (malloc sto))
+                                    (constant-propagation body (extend-env arg new-loc env) (extend-sto new-loc (car args) sto))])
+                                   
+                                 ]
+                                [(app f2 e2)
+                                 (app (propagateApp f2 (cons (constant-propagation e2 env sto) args) env sto) e2)]
+                                [(id name)
+
+                                 
+                                 (propagateApp (sto-lookup (constantPropagationEnvLookUp name env) sto) args env sto)]
+
+                                ))])
+       (propagateApp f (list (constant-propagation e env sto)) env sto)
+       )
+     
+     ]
+    [else expr]
+    )
+  )
+
 ; run: Src -> Src
 ; corre un programa
-(define (run prog)
+(define (runWithTypeChecker prog)
   
   (let* ([expr (parse prog)]
-         [t (typeof expr)])
+         [constantProp (constant-propagation expr envWithY (stoWithY))]
+         [t (typeof constantProp)])
+    
+    (def (v*s res sto) (interp expr envWithY (stoWithY)))
+    (match res
+      [(valV (Zcons first last)) (printArray res)]
+      [(valV v) v]
+      [(promiseV expr env) res]
+      [(closureV arg body env) res]
+      [(boxV loc) res])
+    )
+  
+  )
+; run: Src -> Src
+; corre un programa
+(define (runWithoutTypeChecker prog)
+  
+  (let* ([expr (parse prog)]
+         )
+    
     (def (v*s res sto) (interp expr envWithY (stoWithY)))
     (match res
       [(valV (Zcons first last)) (printArray res)]
@@ -445,7 +534,7 @@
   (let* ([expr (parse prog)]
          [t (typeof expr)])
     (def (v*s res sto) (interp expr envWithY (stoWithY)))
-    (display sto)
+    (print sto)
     (match res
       [(valV (Zcons first last)) (printArray res)]
       [(valV v) v]
@@ -453,60 +542,57 @@
       [(closureV arg body env) res]
       [(boxV loc) res])
     )
+
 )
-
- 
-
-
 ;Pruebas If -----------------------------------------------
-(test (run '(if-tf (== 3 2) "fue true" "fue false")) "fue false")
-(test (run '(if-tf (== 3 3) "fue true" "fue false")) "fue true")
+(test (runWithTypeChecker '(if-tf (== 3 2) "fue true" "fue false")) "fue false")
+(test (runWithTypeChecker '(if-tf (== 3 3) "fue true" "fue false")) "fue true")
 ;Pruebas strings---------------------------------------------
-(test (run '"soy un string") "soy un string")
-(test (run '(appendStr "string 1 " "string 2") )"string 1 string 2")
-(test (run '(appendStr "string 1 " "string 2 " "string 3") )"string 1 string 2 string 3")
-(test (run '(lenStr (appendStr "string 1 " "string 2 " "string 3"))) 26)
-(test (run '(strRef (appendStr "string 1 " "string 2 " "string 3") 1)) #\t)
-(test (run '(strRef (appendStr "string 1 " "string 2 " "string 3") 0)) #\s)
-(test (run '(strRef (appendStr "string 1 " "string 2 " "string 3") 7)) #\1)
+(test (runWithTypeChecker '"soy un string") "soy un string")
+(test (runWithTypeChecker '(appendStr "string 1 " "string 2") )"string 1 string 2")
+(test (runWithTypeChecker '(appendStr "string 1 " "string 2 " "string 3") )"string 1 string 2 string 3")
+(test (runWithTypeChecker '(lenStr (appendStr "string 1 " "string 2 " "string 3"))) 26)
+(test (runWithTypeChecker '(strRef (appendStr "string 1 " "string 2 " "string 3") 1)) #\t)
+(test (runWithTypeChecker '(strRef (appendStr "string 1 " "string 2 " "string 3") 0)) #\s)
+(test (runWithTypeChecker '(strRef (appendStr "string 1 " "string 2 " "string 3") 7)) #\1)
 ;(parse '(lenStr (appendStr "string 1 " "string 2 " "string 3")))
 
-(run '{list (+ 3 5) 1 3})
-(test (run '(car {list (+ 68 1) 1 3})) 69)
-(run '(cdr {list (+ 68 1) 1 3}))
-(test (run '(car (cdr {list (+ 68 1) 1 3}))) 1)
+(runWithTypeChecker '{list (+ 3 5) 1 3})
+(test (runWithTypeChecker '(car {list (+ 68 1) 1 3})) 69)
+(runWithTypeChecker '(cdr {list (+ 68 1) 1 3}))
+(test (runWithTypeChecker '(car (cdr {list (+ 68 1) 1 3}))) 1)
 
-(test (run '(empty)) '())
-(test (run '(take {list (+ 68 1) 1 3} 0)) 69)
-(test (run '(take {list (+ 68 1) 1 3} 1)) 1)
-(test (run '(take {list (+ 68 1) 1 3} 2)) 3)
-(test/exn (run '(take {list (+ 68 1) 1 3} 3)) "Index not found")
+(test (runWithTypeChecker '(empty)) '())
+(test (runWithTypeChecker '(take {list (+ 68 1) 1 3} 0)) 69)
+(test (runWithTypeChecker '(take {list (+ 68 1) 1 3} 1)) 1)
+(test (runWithTypeChecker '(take {list (+ 68 1) 1 3} 2)) 3)
+(test/exn (runWithTypeChecker '(take {list (+ 68 1) 1 3} 3)) "Index not found")
 
 ;N argumentos en funciones --------------------------
-(test (run '{{fun (a) {+ a 2}} 3}) 5)
-(test (run '{{fun (a b) {+ a b}} 1 4}) 5)
-(test (run '{{fun (a b c) {+ a {- b c}}} 3 2 1}) 4)
+(test (runWithoutTypeChecker '{{fun (a) {+ a 2}} 3}) 5)
+(test (runWithoutTypeChecker '{{fun (a b) {+ a b}} 1 4}) 5)
+(test (runWithoutTypeChecker '{{fun (a b c) {+ a {- b c}}} 3 2 1}) 4)
 
-(test (run '{{fun (a b c d e f g) {+ a {- b c}}} 3 2 1 1 5 8 7}) 4)
+(test (runWithoutTypeChecker '{{fun (a b c d e f g) {+ a {- b c}}} 3 2 1 1 5 8 7}) 4)
 
 ; prueba funciones con N args dentro de with -----------------
-(test (run '{with {add {fun {a b c} {+ a {+ b c}}}} {+ {add 2 3 5 } {add 4 5 6}}}) 25)
+(test (runWithoutTypeChecker '{with {add {fun {a b c} {+ a {+ b c}}}} {+ {add 2 3 5 } {add 4 5 6}}}) 25)
 
 ; Pruebas delay force ---------------------------------------
-(test (run '{delay (+ 5 5)}) (promiseV (prim '+ (num 5) (num 5)) (aEnv 'Y 0 (mtEnv))))
-(test (run'{force {delay (+ 5 5)}}) 10)
-(test (run '(with {a (delay (* 5 5))} (force a))) 25)
+(test (runWithoutTypeChecker '{delay (+ 5 5)}) (promiseV (prim '+ (num 5) (num 5)) (aEnv 'Y 0 (mtEnv))))
+(test (runWithoutTypeChecker'{force {delay (+ 5 5)}}) 10)
+(test (runWithoutTypeChecker '(with {a (delay (* 5 5))} (force a))) 25)
 
 ;Pruebas rec  ---------------------------------------
-(test (run '{rec {sum {fun {n}
+(test (runWithoutTypeChecker '{rec {sum {fun {n}
                         {if-tf {== 0 n} 0 {+ n {sum {- n 1}}}}}} {sum 5}}) 15)
-(test (run '{rec {sum {fun {n}
+(test (runWithoutTypeChecker '{rec {sum {fun {n}
                         {if-tf {== 0 n} 0 {+ n {sum {- n 1}}}}}} {sum 3}}) 6)
-(test (run '{rec {fact {fun {n}
+(test (runWithoutTypeChecker '{rec {fact {fun {n}
                         {if-tf {== 0 n} 1 {* n {fact {- n 1}}}}}} {fact 4}}) 24)
 
 
-(test (run '{rec {mult0 {fun {n1 n2}
+(test (runWithoutTypeChecker '{rec {mult0 {fun {n1 n2}
                              
                         {if-tf {== n1 0} 0 {+ (* n1 n2) {mult0 (- n1 1) n2}}}}
                         } {mult0 4 3}}) 30)
@@ -521,68 +607,69 @@
 
 ;-------------------------------------------------------Pruebas base
 
-(test (run '{* -2 3 4}) -24)
-(test (run '{+ 3 4}) 7)
-(test (run '{- 5 1}) 4)
-(test (run '{+ 3 4}) 7)
-(test (run '{- 5 1}) 4)
-(test (run '{+ 1 2 3 4}) 10)
-(test (run '{* 2 3 4}) 24)
-(test (run '{/ 12 2 2}) 3)
-(test (run '{< 12 3}) #f)
-(test (run '{<= 12 3}) #f)
-(test (run '{< 12 12}) #f)
-(test (run '{<= 12 12}) #t)
-(test (run '{> 12 3}) #t)
-(test (run '{>= 12 3}) #t)
-(test (run '{> 12 12}) #f)
-(test (run '{>= 12 12}) #t)
-(test (run '{>= 12 12}) #t)
-(test (run '{== 12 12}) #t)
-(test (run '{== 12 11}) #f)
-(test (run '{!= 12 12}) #f)
-(test (run '{!= 12 11}) #t)
-(test (run '{&& 12 11}) 11)
-(test (run '{&& #f #t}) #f)
-(test (run '{|| #f #t}) #t)
-(test (run '{|| 12 11}) 12)
-(test (run '{with {x 3} 2}) 2)
-(test (run '{with {x 3} x}) 3)
-(test (run '{with {x 3} {with {y 4} x}}) 3)
-(test (run '{with {x 3} {+ x 4}}) 7)
-(test (run '{with {x 3} {with {x 10} {+ x x}}}) 20)
-(test (run '{with {x 3} {with {x x} {+ x x}}}) 6)
-(test (run '{with {x 3} {with {y 2} {+ x y}}}) 5)
-(test (run '{with {x 3} {+ 1 {with {y 2} {+ x y}}}}) 6)
-(test (run '{with {x 3} {with {y {+ 2 x}} {+ x y}}}) 8)
-(test (run '{* 1 1 1 1}) 1)
-(test/exn (run '{* 1 #t 1 1}) "type error")
-(test/exn (run '{with {x #t} {* 1 x x x}}) "type error")
-(test/exn (run '{with {x #t} {* x x x x}}) "type error");;TODO
-(test/exn (run '(appendStr "string 1 " 2) )"type error")
-(test/exn (run '(lenStr 5)) "type error")
-(test (run '{with {x 3} {+ x x}}) 6)
-(test (run '{with {x 3} {with {y 2} {+ x y}}}) 5)
-(test (run '{with {{x 3} {y 2}} {+ x y}}) 5) ;falla
-(test (run '{with {{x 3} {x 5}} {+ x x}}) 10)
-(test (run '{with {{x 3} {y {+ x 3}}} {+ x y}}) 9)
-(test (run '{with {{x 10} {y 2} {z 3}} {+ x {+ y z}}}) 15)
-(test (run '{with {x 3} {if-tf {+ x 1} {+ x 3} {+ x 9}}}) 6)
-(test/exn (run '{f 10}) "undefined")
-(test (run '{with {f {fun {x} {+ x x}}}{f 10}}) 20)
-(test (run '{{fun {x} {+ x x}} 10}) 20)
-(test (run '{with {add1 {fun {x} {+ x 1}}}{add1 {add1 {add1 10}}}}) 13)
-(test (run '{with {add1 {fun {x} {+ x 1}}}
+(test (runWithTypeChecker '{* -2 3 4}) -24)
+(test (runWithTypeChecker '{+ 3 4}) 7)
+(test (runWithTypeChecker '{- 5 1}) 4)
+(test (runWithTypeChecker '{+ 3 4}) 7)
+(test (runWithTypeChecker '{- 5 1}) 4)
+(test (runWithTypeChecker '{+ 1 2 3 4}) 10)
+(test (runWithTypeChecker '{* 2 3 4}) 24)
+(test (runWithTypeChecker '{/ 12 2 2}) 3)
+(test (runWithTypeChecker '{< 12 3}) #f)
+(test (runWithTypeChecker '{<= 12 3}) #f)
+(test (runWithTypeChecker '{< 12 12}) #f)
+(test (runWithTypeChecker '{<= 12 12}) #t)
+(test (runWithTypeChecker '{> 12 3}) #t)
+(test (runWithTypeChecker '{>= 12 3}) #t)
+(test (runWithTypeChecker '{> 12 12}) #f)
+(test (runWithTypeChecker '{>= 12 12}) #t)
+(test (runWithTypeChecker '{>= 12 12}) #t)
+(test (runWithTypeChecker '{== 12 12}) #t)
+(test (runWithTypeChecker '{== 12 11}) #f)
+(test (runWithTypeChecker '{!= 12 12}) #f)
+(test (runWithTypeChecker '{!= 12 11}) #t)
+(test (runWithTypeChecker '{&& 12 11}) 11)
+(test (runWithTypeChecker '{&& #f #t}) #f)
+(test (runWithTypeChecker '{|| #f #t}) #t)
+(test (runWithTypeChecker '{|| 12 11}) 12)
+(test (runWithTypeChecker '{with {x 3} 2}) 2)
+(test (runWithTypeChecker '{with {x 3} x}) 3)
+(test (runWithTypeChecker '{with {x 3} {with {y 4} x}}) 3)
+(test (runWithTypeChecker '{with {x 3} {+ x 4}}) 7)
+(test (runWithTypeChecker '{with {x 3} {with {x 10} {+ x x}}}) 20)
+(test (runWithTypeChecker '{with {x 3} {with {x x} {+ x x}}}) 6)
+(test (runWithTypeChecker '{with {x 3} {with {y 2} {+ x y}}}) 5)
+(test (runWithTypeChecker '{with {x 3} {+ 1 {with {y 2} {+ x y}}}}) 6)
+(test (runWithTypeChecker '{with {x 3} {with {y {+ 2 x}} {+ x y}}}) 8)
+(test (runWithTypeChecker '{* 1 1 1 1}) 1)
+(test/exn (runWithTypeChecker '{* 1 #t 1 1}) "type error")
+(test/exn (runWithTypeChecker '{with {x #t} {* 1 x x x}}) "type error")
+(test/exn (runWithTypeChecker '{with {x #t} {* x x x x}}) "type error")
+(test/exn (runWithTypeChecker '(appendStr "string 1 " 2) )"type error")
+(test/exn (runWithTypeChecker '(lenStr 5)) "type error")
+(test (runWithTypeChecker '{with {x 3} {+ x x}}) 6)
+(test (runWithTypeChecker '{with {x 3} {with {y 2} {+ x y}}}) 5)
+(test (runWithTypeChecker '{with {{x 3} {y 2}} {+ x y}}) 5)
+(test (runWithTypeChecker '{with {{x 3} {x 5}} {+ x x}}) 10)
+(test (runWithTypeChecker '{with {{x 3} {y {+ x 3}}} {+ x y}}) 9)
+(test (runWithTypeChecker '{with {{x 10} {y 2} {z 3}} {+ x {+ y z}}}) 15)
+(test (runWithTypeChecker '{with {x 3} {if-tf {+ x 1} {+ x 3} {+ x 9}}}) 6)
+(test/exn (runWithTypeChecker '{f 10}) "undefined")
+(test (runWithTypeChecker '{with {f {fun {x} {+ x x}}}{f 10}}) 20)
+(test (runWithTypeChecker '{{fun {x} {+ x x}} 10}) 20)
+(test (runWithTypeChecker '{with {add1 {fun {x} {+ x 1}}}{add1 {add1 {add1 10}}}}) 13)
+(test (runWithTypeChecker '{with {add1 {fun {x} {+ x 1}}}
                   {with {foo {fun {x} {+ {add1 x} {add1 x}}}}
                         {foo 10}}}) 22)
-(test (run '{with {add1 {fun {x} {+ x 1}}}
+(test (runWithTypeChecker '{with {add1 {fun {x} {+ x 1}}}
                   {with {foo {fun {f} {+ {f 10} {f 10}}}}
                         {foo add1}}}) 22)
-(test (run '{{fun {x}{+ x 1}} {+ 2 3}}) 6)
-(test (run '{with {apply10 {fun {f} {f 10}}}
+(test (runWithTypeChecker '{{fun {x}{+ x 1}} {+ 2 3}}) 6)
+(test (runWithTypeChecker '{with {apply10 {fun {f} {f 10}}}
                   {with {add1 {fun {x} {+ x 1}}}
                         {apply10 add1}}}) 11)
-(test (run '{with {addN {fun {n}
+
+(test (runWithTypeChecker '{with {addN {fun {n}
                        {fun {x} {+ x n}}}}
             {{addN 10} 20}}) 30)
 
@@ -590,4 +677,4 @@
 ;Pregunta 6
 ;por defecto en la forma que esta nuestro lenguaje no da ya que usa el env con el que se guardo la promesa, si no fuera asi, si se podria
 
-(test/exn (run '(with {ones (delay (list 1 ones))} (take ones 34))) "undefined:  'ones")
+(test/exn (runWithTypeChecker '(with {ones (delay (list 1 ones))} (take ones 34))) "undefined:  'ones")
