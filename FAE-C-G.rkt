@@ -385,13 +385,39 @@
 ;TODO--------------------------------------------------------------
 (deftype Type
   (Num)
-  (Bool))
+  (Bool)
+  (Str))
 
 ;typeof: expr -> type/error
 (define (typeof expr)
+  (define (check-num-type l r)
+    (if (and (Num? (typeof l)) (Num? (typeof r)))
+        (Num)
+        (error "type error")))
+  (define (check-str-type l r)
+    (if (and (Str? (typeof l)) (Str? (typeof r)))
+        (Str)
+        (error "type error")))
   (match expr
     [(num n) (Num)]
     [(bool b) (Bool)]
+    [(str s) (Str)]
+    [(prim '+ l r) (check-num-type l r)]
+    [(prim '* l r) (check-num-type l r)]
+    [(prim '/ l r) (check-num-type l r)]
+    [(prim '- l r) (check-num-type l r)]
+    [(prim '< l r) (check-num-type l r)]
+    [(prim '<= l r) (check-num-type l r)]
+    [(prim '> l r) (check-num-type l r)]
+    [(prim '>= l r) (check-num-type l r)]
+    [(prim 'appendStr l r) (check-str-type l r)]
+    [(oneArgPrim 'lenStr l) (if  (Str? (typeof l))
+        (Str)
+        (error "type error"))]
+    [(prim 'strRef s n)
+     (if (and (Str? (typeof s)) (Num? (typeof n)))
+        (Str)
+        (error "type error"))]
     [else "Type Checker not defined"]
     
     )
@@ -428,6 +454,9 @@
       [(boxV loc) res])
     )
 )
+
+ 
+
 
 ;Pruebas If -----------------------------------------------
 (test (run '(if-tf (== 3 2) "fue true" "fue false")) "fue false")
@@ -493,7 +522,6 @@
 ;-------------------------------------------------------Pruebas base
 
 (test (run '{* -2 3 4}) -24)
-
 (test (run '{+ 3 4}) 7)
 (test (run '{- 5 1}) 4)
 (test (run '{+ 3 4}) 7)
@@ -530,7 +558,9 @@
 (test (run '{* 1 1 1 1}) 1)
 (test/exn (run '{* 1 #t 1 1}) "type error")
 (test/exn (run '{with {x #t} {* 1 x x x}}) "type error")
-(test/exn (run '{with {x #t} {* x x x x}}) "type error")
+(test/exn (run '{with {x #t} {* x x x x}}) "type error");;TODO
+(test/exn (run '(appendStr "string 1 " 2) )"type error")
+(test/exn (run '(lenStr 5)) "type error")
 (test (run '{with {x 3} {+ x x}}) 6)
 (test (run '{with {x 3} {with {y 2} {+ x y}}}) 5)
 (test (run '{with {{x 3} {y 2}} {+ x y}}) 5) ;falla
