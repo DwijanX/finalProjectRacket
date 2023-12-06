@@ -301,8 +301,8 @@
      (def new-loc (malloc exp-sto))
      (interp body (extend-env arg new-loc fenv) (extend-sto new-loc exp-val exp-sto))]
     [(delay expr) (v*s (promiseV expr env) sto)]
-    [(force promise)
-     (def (v*s (promiseV expr-p env-p) exp-sto) (interp promise env sto))
+    [(force expr)
+     (def (v*s (promiseV expr-p env-p) exp-sto) (interp expr env sto))
      
      (interp expr-p env-p exp-sto)]
     [(newbox b)
