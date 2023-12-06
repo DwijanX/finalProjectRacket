@@ -382,31 +382,52 @@
   (display ")\n")
   )
 
+;TODO--------------------------------------------------------------
+(deftype Type
+  (Num)
+  (Bool))
+
+;typeof: expr -> type/error
+(define (typeof expr)
+  (match expr
+    [(num n) (Num)]
+    [(bool b) (Bool)]
+    [else "Type Checker not defined"]
+    
+    )
+  )
+
 ; run: Src -> Src
 ; corre un programa
 (define (run prog)
-  (def (v*s res sto) (interp (parse prog) envWithY (stoWithY)))
+  
+  (let* ([expr (parse prog)]
+         [t (typeof expr)])
+    (def (v*s res sto) (interp expr envWithY (stoWithY)))
     (match res
       [(valV (Zcons first last)) (printArray res)]
       [(valV v) v]
       [(promiseV expr env) res]
       [(closureV arg body env) res]
       [(boxV loc) res])
-  
     )
+  
+  )
 ; run: Src -> Src
 ; corre un programa pero muestra el storage
 (define (runToCheckLazy prog)
-  
-  (def (v*s res sto) (interp (parse prog) envWithY (stoWithY)))
-   (display sto)
+  (let* ([expr (parse prog)]
+         [t (typeof expr)])
+    (def (v*s res sto) (interp expr envWithY (stoWithY)))
+    (display sto)
     (match res
+      [(valV (Zcons first last)) (printArray res)]
       [(valV v) v]
       [(promiseV expr env) res]
       [(closureV arg body env) res]
       [(boxV loc) res])
-  
     )
+)
 
 ;Pruebas If -----------------------------------------------
 (test (run '(if-tf (== 3 2) "fue true" "fue false")) "fue false")
@@ -473,12 +494,10 @@
 
 (test (run '{* -2 3 4}) -24)
 
-(test (run '{+ 3 (- 5 3)}) 5)
 (test (run '{+ 3 4}) 7)
 (test (run '{- 5 1}) 4)
 (test (run '{+ 3 4}) 7)
 (test (run '{- 5 1}) 4)
-
 (test (run '{+ 1 2 3 4}) 10)
 (test (run '{* 2 3 4}) 24)
 (test (run '{/ 12 2 2}) 3)
@@ -499,7 +518,43 @@
 (test (run '{&& #f #t}) #f)
 (test (run '{|| #f #t}) #t)
 (test (run '{|| 12 11}) 12)
-
+(test (run '{with {x 3} 2}) 2)
+(test (run '{with {x 3} x}) 3)
+(test (run '{with {x 3} {with {y 4} x}}) 3)
+(test (run '{with {x 3} {+ x 4}}) 7)
+(test (run '{with {x 3} {with {x 10} {+ x x}}}) 20)
+(test (run '{with {x 3} {with {x x} {+ x x}}}) 6)
+(test (run '{with {x 3} {with {y 2} {+ x y}}}) 5)
+(test (run '{with {x 3} {+ 1 {with {y 2} {+ x y}}}}) 6)
+(test (run '{with {x 3} {with {y {+ 2 x}} {+ x y}}}) 8)
+(test (run '{* 1 1 1 1}) 1)
+(test/exn (run '{* 1 #t 1 1}) "type error")
+(test/exn (run '{with {x #t} {* 1 x x x}}) "type error")
+(test/exn (run '{with {x #t} {* x x x x}}) "type error")
+(test (run '{with {x 3} {+ x x}}) 6)
+(test (run '{with {x 3} {with {y 2} {+ x y}}}) 5)
+(test (run '{with {{x 3} {y 2}} {+ x y}}) 5) ;falla
+(test (run '{with {{x 3} {x 5}} {+ x x}}) 10)
+(test (run '{with {{x 3} {y {+ x 3}}} {+ x y}}) 9)
+(test (run '{with {{x 10} {y 2} {z 3}} {+ x {+ y z}}}) 15)
+(test (run '{with {x 3} {if-tf {+ x 1} {+ x 3} {+ x 9}}}) 6)
+(test/exn (run '{f 10}) "undefined")
+(test (run '{with {f {fun {x} {+ x x}}}{f 10}}) 20)
+(test (run '{{fun {x} {+ x x}} 10}) 20)
+(test (run '{with {add1 {fun {x} {+ x 1}}}{add1 {add1 {add1 10}}}}) 13)
+(test (run '{with {add1 {fun {x} {+ x 1}}}
+                  {with {foo {fun {x} {+ {add1 x} {add1 x}}}}
+                        {foo 10}}}) 22)
+(test (run '{with {add1 {fun {x} {+ x 1}}}
+                  {with {foo {fun {f} {+ {f 10} {f 10}}}}
+                        {foo add1}}}) 22)
+(test (run '{{fun {x}{+ x 1}} {+ 2 3}}) 6)
+(test (run '{with {apply10 {fun {f} {f 10}}}
+                  {with {add1 {fun {x} {+ x 1}}}
+                        {apply10 add1}}}) 11)
+(test (run '{with {addN {fun {n}
+                       {fun {x} {+ x n}}}}
+            {{addN 10} 20}}) 30)
 
 
 ;Pregunta 6
