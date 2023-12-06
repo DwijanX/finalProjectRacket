@@ -56,7 +56,7 @@
   [setbox b n]                            ; (setbox <ZPKS> <ZPKS>)
   [seqn e1 e2]                            ; (seqn <ZPKS> <ZPKS>)
   [appL f e]                              ; (appL <ZPKS> <ZPKS>)
-)
+  )
 ; lista vacia
 (define empty-list '())
 
@@ -117,16 +117,16 @@
 ; se encarga de parsear funciones primitivas del lenguaje
 (define (parsePrimitiveArgs operation args)
   (if (empty? (cdr args))
-               (parse (car args))
-               (prim operation (parse (car args)) (parsePrimitiveArgs operation (cdr args)))))
+      (parse (car args))
+      (prim operation (parse (car args)) (parsePrimitiveArgs operation (cdr args)))))
 ; listHandler :src -> Expr
 ; se encarga de parsear la operacion division
 (define (divisionParser args)
-      (cond
-        [(empty? (cdr args)) (parse (car args))]
-        [(empty? (cdr (cdr args)))  (prim '/ (parse (car args)) (parse (cadr args)))]
-        [else (prim '/ (prim '/ (parse (car args)) (parse (cadr args))) (divisionParser (cdr (cdr args))))]
-          )
+  (cond
+    [(empty? (cdr args)) (parse (car args))]
+    [(empty? (cdr (cdr args)))  (prim '/ (parse (car args)) (parse (cadr args)))]
+    [else (prim '/ (prim '/ (parse (car args)) (parse (cadr args))) (divisionParser (cdr (cdr args))))]
+    )
   )
 ; listHandler :src -> Expr
 ; se encarga de parsear listas 
@@ -148,10 +148,10 @@
   
   (if (empty? (cdr exps))
       (let ([leftArg (match arg
-              [(list 'fun (cons arg1 tail) body) (parse arg)]
-              [(list arg1 exps1 ...) (appFunctionParserLazy arg1 exps1)]
-              [else (parse arg)]
-              )])
+                       [(list 'fun (cons arg1 tail) body) (parse arg)]
+                       [(list arg1 exps1 ...) (appFunctionParserLazy arg1 exps1)]
+                       [else (parse arg)]
+                       )])
         (appL leftArg (parse (car exps)))
         )
       (appFunctionParserLazy (list arg (car exps)) (cdr exps))
@@ -330,7 +330,7 @@
      ]
     [(valV exp) (v*s expr sto)]
 
-))
+    ))
 ; malloc : sto -> loc
 ; devuelve un loc de memoria en el storage
 (define (malloc sto)
@@ -362,11 +362,11 @@
 ; devuelve un storage con el combinador Y
 (define (stoWithY)
   
-    (def (v*s val sto) (interp (parse '{fun {f}
-        {with {h {fun {g}
-                         {fun {n}
-                                 {{f {g g}} n}}}}
-              {h h}}}) (mtEnv) (mtSto))) 
+  (def (v*s val sto) (interp (parse '{fun {f}
+                                          {with {h {fun {g}
+                                                        {fun {n}
+                                                             {{f {g g}} n}}}}
+                                                {h h}}}) (mtEnv) (mtSto))) 
   (aSto 0 val (mtSto)))
 
 ; printArray (Zcons f l) -> void
@@ -374,24 +374,28 @@
 (define (printArray mainArray)
   (display "'(")
   (letrec ([iterateOverArray (λ (arr) (match (valV-v arr)
-                                     [(Zcons first last) (if (empty? (valV-v last))
-                                                             (display (valV-v first))
-                                                             (begin (display (valV-v first)) (display " ") (iterateOverArray last))
-                                                             )]
-                                     ))])
+                                        [(Zcons first last) (if (empty? (valV-v last))
+                                                                (display (valV-v first))
+                                                                (begin (display (valV-v first)) (display " ") (iterateOverArray last))
+                                                                )]
+                                        ))])
     (iterateOverArray mainArray)
     )
   (display ")\n")
   )
 
-;TODO--------------------------------------------------------------
+#|
+<Type> ::= (Num)
+          | (Bool) | (Str)
+|#
 (deftype Type
   (Num)
   (Bool)
   (Str)
- )
+  )
 
 ;typeof: expr -> type/error
+;se encarga de realizar el checkeo de tipos en el lenguaje
 (define (typeof expr)
   (define (check-num-type l r)
     
@@ -434,14 +438,17 @@
     
     )
   )
-
+; constantPropagationEnvLookUp :: <id> <env> -> <val>
+; buscar el valor de una variable dentro del ambiete, a diferencia del env-lookup normal no tira error
 (define (constantPropagationEnvLookUp x env)
   (match env
     [(mtEnv) (id x)]
     [(aEnv id val tail)(if (eq? id x) val (constantPropagationEnvLookUp x tail))]
     )
   )
-
+; constant-propagation :: expr <env> <sto> -> expr
+; Funcion que sirve para realizar el checkeo cuando existen constantes, si hay una constante la reemplaza en el lugar donde va la misma
+; ex. (with {x 3} (+ x x))->(with {x 3} (+ 3 3))
 (define (constant-propagation expr [env (mtEnv)] [sto (mtSto)])
   (match expr
     [(num n) (num n)]
@@ -543,7 +550,7 @@
       [(boxV loc) res])
     )
 
-)
+  )
 ;Pruebas If -----------------------------------------------
 (test (runWithTypeChecker '(if-tf (== 3 2) "fue true" "fue false")) "fue false")
 (test (runWithTypeChecker '(if-tf (== 3 3) "fue true" "fue false")) "fue true")
@@ -585,17 +592,17 @@
 
 ;Pruebas rec  ---------------------------------------
 (test (runWithoutTypeChecker '{rec {sum {fun {n}
-                        {if-tf {== 0 n} 0 {+ n {sum {- n 1}}}}}} {sum 5}}) 15)
+                                             {if-tf {== 0 n} 0 {+ n {sum {- n 1}}}}}} {sum 5}}) 15)
 (test (runWithoutTypeChecker '{rec {sum {fun {n}
-                        {if-tf {== 0 n} 0 {+ n {sum {- n 1}}}}}} {sum 3}}) 6)
+                                             {if-tf {== 0 n} 0 {+ n {sum {- n 1}}}}}} {sum 3}}) 6)
 (test (runWithoutTypeChecker '{rec {fact {fun {n}
-                        {if-tf {== 0 n} 1 {* n {fact {- n 1}}}}}} {fact 4}}) 24)
+                                              {if-tf {== 0 n} 1 {* n {fact {- n 1}}}}}} {fact 4}}) 24)
 
 
 (test (runWithoutTypeChecker '{rec {mult0 {fun {n1 n2}
                              
-                        {if-tf {== n1 0} 0 {+ (* n1 n2) {mult0 (- n1 1) n2}}}}
-                        } {mult0 4 3}}) 30)
+                                               {if-tf {== n1 0} 0 {+ (* n1 n2) {mult0 (- n1 1) n2}}}}
+                                          } {mult0 4 3}}) 30)
 ;Pruebas lazy  ---------------------------------------
 ;(display "Showing storage of lazy function\n")
 ;(test (runToCheckLazy '{lazy {fun (a b) {+ b 2}} (+ 1 5) (+ 2 3)}) 7)
@@ -659,19 +666,19 @@
 (test (runWithTypeChecker '{{fun {x} {+ x x}} 10}) 20)
 (test (runWithTypeChecker '{with {add1 {fun {x} {+ x 1}}}{add1 {add1 {add1 10}}}}) 13)
 (test (runWithTypeChecker '{with {add1 {fun {x} {+ x 1}}}
-                  {with {foo {fun {x} {+ {add1 x} {add1 x}}}}
-                        {foo 10}}}) 22)
+                                 {with {foo {fun {x} {+ {add1 x} {add1 x}}}}
+                                       {foo 10}}}) 22)
 (test (runWithTypeChecker '{with {add1 {fun {x} {+ x 1}}}
-                  {with {foo {fun {f} {+ {f 10} {f 10}}}}
-                        {foo add1}}}) 22)
+                                 {with {foo {fun {f} {+ {f 10} {f 10}}}}
+                                       {foo add1}}}) 22)
 (test (runWithTypeChecker '{{fun {x}{+ x 1}} {+ 2 3}}) 6)
 (test (runWithTypeChecker '{with {apply10 {fun {f} {f 10}}}
-                  {with {add1 {fun {x} {+ x 1}}}
-                        {apply10 add1}}}) 11)
+                                 {with {add1 {fun {x} {+ x 1}}}
+                                       {apply10 add1}}}) 11)
 
 (test (runWithTypeChecker '{with {addN {fun {n}
-                       {fun {x} {+ x n}}}}
-            {{addN 10} 20}}) 30)
+                                            {fun {x} {+ x n}}}}
+                                 {{addN 10} 20}}) 30)
 
 
 ;Pregunta 6
